@@ -11,6 +11,7 @@ use warnings;
 use lib '/usr/local/cpanel';
 use Whostmgr::ACLS();
 use Cpanel::JSON();
+use CGI();
 use File::Path qw(remove_tree);
 
 Whostmgr::ACLS::init_acls();
@@ -23,6 +24,7 @@ my $LOG_DIR = '/var/log/simplify_manual_wp_actions';
 run() unless caller();
 
 sub run {
+    my $cgi = CGI->new();
     my $request_method = $ENV{REQUEST_METHOD} || 'GET';
 
     # Check permissions
@@ -37,7 +39,7 @@ sub run {
 
     # Handle POST requests (API calls)
     if ($request_method eq 'POST') {
-        handle_api_request();
+        handle_api_request($cgi);
     } else {
         # Handle GET requests (UI rendering)
         render_ui();
@@ -51,6 +53,8 @@ sub run {
 ###############################################################################
 
 sub handle_api_request {
+    my ($cgi) = @_;
+
     my $post_body = '';
     if (!eof(STDIN)) {
         local $/;
