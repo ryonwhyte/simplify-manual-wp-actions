@@ -1,5 +1,6 @@
 [%
 USE Whostmgr;
+USE JSON;
 
 # Handle right-to-left locales
 IF locale.get_html_dir_attr() == 'rtl';
@@ -13,9 +14,9 @@ SET styleSheets = [
 
 # Wrap with WHM master template
 WRAPPER 'master_templates/master.tmpl'
-    header = "Simplify Manual WP Actions"
+    header = locale.maketext("Simplify Manual WP Actions")
     stylesheets = styleSheets,
-    theme = 'bootstrap';
+    theme='bootstrap';
 %]
 
 <style type="text/css">
