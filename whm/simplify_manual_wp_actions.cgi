@@ -55,18 +55,28 @@ sub run {
 sub handle_api_request {
     my ($cgi) = @_;
 
-    my $post_body = '';
-    if (!eof(STDIN)) {
-        local $/;
-        $post_body = <STDIN>;
+    # Read request body with size limit
+    my $body = '';
+
+    # Check if CGI.pm already read the body
+    my $postdata = $cgi->param('POSTDATA');
+    if (defined $postdata && $postdata ne '') {
+        $body = $postdata;
+    } else {
+        # Read from STDIN directly
+        my $content_length = $ENV{CONTENT_LENGTH} || 0;
+        if ($content_length > 0) {
+            read(STDIN, $body, $content_length);
+        }
     }
 
-    unless ($post_body && $post_body ne '') {
+    # Handle empty body
+    unless ($body && $body ne '') {
         print_json_error('invalid_json', 'Empty request body');
         return;
     }
 
-    my $request = eval { Cpanel::JSON::Load($post_body) };
+    my $request = eval { Cpanel::JSON::Load($body) };
     if ($@) {
         print_json_error('invalid_json', "Invalid JSON: $@");
         return;
