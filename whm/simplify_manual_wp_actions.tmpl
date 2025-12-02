@@ -1,9 +1,20 @@
 [%
 USE Whostmgr;
 
+# Handle right-to-left locales
+IF locale.get_html_dir_attr() == 'rtl';
+    SET rtl_bootstrap = Whostmgr.find_file_url('/3rdparty/bootstrap-rtl/optimized/dist/css/bootstrap-rtl.min.css');
+END;
+
+# Configure stylesheets
+SET styleSheets = [
+    rtl_bootstrap
+];
+
 # Wrap with WHM master template
 WRAPPER 'master_templates/master.tmpl'
     header = "Simplify Manual WP Actions"
+    stylesheets = styleSheets,
     theme = 'bootstrap';
 %]
 

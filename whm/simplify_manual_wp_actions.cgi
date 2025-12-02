@@ -256,29 +256,20 @@ sub format_bytes {
 }
 
 sub render_ui {
-    print "Content-Type: text/html\r\n\r\n";
+    # Use Template Toolkit for proper WHM integration
+    use Cpanel::Template ();
 
-    require Whostmgr::HTMLInterface;
-    Whostmgr::HTMLInterface::defheader('Simplify Manual WP Actions', '', '/');
+    print "Content-type: text/html\r\n\r\n";
 
-    my $template_file = '/usr/local/cpanel/whostmgr/docroot/templates/simplify_manual_wp_actions/simplify_manual_wp_actions.tmpl';
+    Cpanel::Template::process_template(
+        'whostmgr',
+        {
+            'template_file' => 'simplify_manual_wp_actions/simplify_manual_wp_actions.tmpl',
+            'print'         => 1,
+        }
+    );
 
-    if (-f $template_file) {
-        require Template;
-        my $tt = Template->new({
-            INCLUDE_PATH => '/usr/local/cpanel/whostmgr/docroot/templates',
-            WRAPPER => 'master_templates/master.tmpl',
-        });
-
-        $tt->process('simplify_manual_wp_actions/simplify_manual_wp_actions.tmpl', {
-            header => 'Simplify Manual WP Actions'
-        }) or print "<p>Template error: " . $tt->error() . "</p>";
-    } else {
-        print "<h1>Simplify Manual WP Actions</h1>";
-        print "<p>Template file not found. Please reinstall the plugin.</p>";
-    }
-
-    print "</body></html>";
+    return;
 }
 
 sub print_json_success {
