@@ -114,6 +114,9 @@ mkdir -p "$TEMP_DIR/simplify_manual_wp_actions"
 # Copy install.json to root
 cp cpanel/install.json "$TEMP_DIR/install.json"
 
+# Copy icon to root (where install_plugin expects it based on install.json)
+cp cpanel/simplify_manual_wp_actions.svg "$TEMP_DIR/simplify_manual_wp_actions.svg"
+
 # Copy plugin files
 cp cpanel/index.live.pl "$TEMP_DIR/simplify_manual_wp_actions/"
 cp cpanel/index.html.tt "$TEMP_DIR/simplify_manual_wp_actions/"
@@ -121,7 +124,7 @@ cp cpanel/simplify_manual_wp_actions.svg "$TEMP_DIR/simplify_manual_wp_actions/"
 
 # Create tarball
 cd "$TEMP_DIR"
-tar -czf simplify_manual_wp_actions.tar.gz install.json simplify_manual_wp_actions/
+tar -czf simplify_manual_wp_actions.tar.gz install.json simplify_manual_wp_actions.svg simplify_manual_wp_actions/
 cd - >/dev/null
 
 # Install using official script for both themes
@@ -218,14 +221,28 @@ else
     log_warn "WHM icon not found"
 fi
 
-# Register WHM AppConfig
-if [ -f "packaging/simplify_manual_wp_actions.conf" ]; then
-    install -m 644 packaging/simplify_manual_wp_actions.conf /var/cpanel/apps/
-    /usr/local/cpanel/bin/register_appconfig /var/cpanel/apps/simplify_manual_wp_actions.conf 2>/dev/null || true
-    log_info "Registered WHM AppConfig"
-else
-    log_warn "WHM AppConfig not found"
-fi
+# Register WHM AppConfig (write inline like old plugin for reliability)
+log_info "Registering WHM AppConfig..."
+mkdir -p /var/cpanel/apps
+
+cat > /var/cpanel/apps/simplify_manual_wp_actions.conf <<'EOF'
+name=simplify_manual_wp_actions
+service=whostmgr
+url=/cgi/simplify_manual_wp_actions/simplify_manual_wp_actions.cgi
+user=root
+acls=all
+displayname=Simplify Manual WP Actions
+entryurl=simplify_manual_wp_actions/simplify_manual_wp_actions.cgi
+target=_self
+icon=simplify_manual_wp_actions_icon.png
+EOF
+
+chmod 644 /var/cpanel/apps/simplify_manual_wp_actions.conf
+chown root:root /var/cpanel/apps/simplify_manual_wp_actions.conf
+/usr/local/cpanel/bin/register_appconfig /var/cpanel/apps/simplify_manual_wp_actions.conf || {
+    log_error "Failed to register WHM AppConfig"
+}
+log_info "WHM AppConfig registered"
 
 # Set WHM file permissions
 chown -R root:root /usr/local/cpanel/whostmgr/docroot/cgi/simplify_manual_wp_actions 2>/dev/null || true
