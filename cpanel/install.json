@@ -1,0 +1,12 @@
+[
+    {
+        "icon": "simplify_manual_wp_actions.svg",
+        "group_id": "domains",
+        "order": 1001,
+        "name": "Simplify Manual WP Actions",
+        "type": "link",
+        "id": "simplify_manual_wp_actions",
+        "uri": "simplify_manual_wp_actions/index.live.pl",
+        "description": "Bulk update WordPress plugins and themes across multiple sites via manual zip upload"
+    }
+]

@@ -1,0 +1,308 @@
+[%
+USE Whostmgr;
+
+# Wrap with WHM master template
+WRAPPER 'master_templates/master.tmpl'
+    header = "Simplify Manual WP Actions"
+    theme = 'bootstrap';
+%]
+
+<style type="text/css">
+    .smwpa-container { max-width: 800px; margin: 0 auto; }
+    .status-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .status-ok { background: #48bb78; color: white; }
+    .status-error { background: #f56565; color: white; }
+    .status-warning { background: #ed8936; color: white; }
+    .wp-card {
+        background: #fff;
+        padding: 25px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .wp-card h2 {
+        color: #2d3748;
+        font-size: 18px;
+        margin-bottom: 20px;
+        font-weight: 600;
+        padding-bottom: 15px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: #718096; font-weight: 500; }
+    .info-value { color: #2d3748; font-weight: 600; }
+    .btn {
+        padding: 12px 24px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.2s;
+    }
+    .btn-danger {
+        background: #f56565;
+        color: white;
+    }
+    .btn-danger:hover {
+        background: #e53e3e;
+    }
+    .btn-primary {
+        background: #4299e1;
+        color: white;
+    }
+    .btn-primary:hover {
+        background: #3182ce;
+    }
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    #loading {
+        display: none;
+        padding: 20px;
+        text-align: center;
+        color: #4299e1;
+        font-weight: 600;
+    }
+    .alert {
+        padding: 15px 20px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+    }
+    .alert-info {
+        background: #ebf8ff;
+        color: #2b6cb0;
+        border: 1px solid #90cdf4;
+    }
+    .alert-success {
+        background: #f0fff4;
+        color: #276749;
+        border: 1px solid #9ae6b4;
+    }
+    .alert-danger {
+        background: #fff5f5;
+        color: #c53030;
+        border: 1px solid #feb2b2;
+    }
+    .uninstall-warning {
+        background: #fffaf0;
+        border: 1px solid #fbd38d;
+        color: #c05621;
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+    }
+    .result-log {
+        background: #1a202c;
+        color: #a0aec0;
+        padding: 15px;
+        border-radius: 6px;
+        font-family: monospace;
+        font-size: 12px;
+        max-height: 300px;
+        overflow-y: auto;
+        display: none;
+    }
+    .result-log .success { color: #48bb78; }
+    .result-log .error { color: #f56565; }
+</style>
+
+<div class="smwpa-container">
+    <div class="wp-card">
+        <h2><i class="fas fa-info-circle"></i> Plugin Information</h2>
+        <p style="color: #718096; margin-bottom: 20px;">
+            Simplify Manual WP Actions allows cPanel users to bulk update WordPress plugins and themes
+            across multiple sites via manual zip upload.
+        </p>
+
+        <div id="loading"><i class="fas fa-spinner fa-spin"></i> Loading status...</div>
+
+        <div id="status-info" style="display: none;">
+            <div class="info-row">
+                <span class="info-label">Installation Status</span>
+                <span class="info-value"><span id="install-status" class="status-badge">Checking...</span></span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">cPanel Plugin</span>
+                <span class="info-value" id="cpanel-status">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Cleanup Cron Job</span>
+                <span class="info-value" id="cron-status">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Stored Backups</span>
+                <span class="info-value" id="backup-info">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Log Files</span>
+                <span class="info-value" id="log-info">-</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="wp-card" id="uninstall-section" style="display: none;">
+        <h2><i class="fas fa-trash-alt"></i> Uninstall Plugin</h2>
+
+        <div class="uninstall-warning">
+            <strong><i class="fas fa-exclamation-triangle"></i> Warning:</strong>
+            Uninstalling will remove all plugin files, backups, and logs. This action cannot be undone.
+        </div>
+
+        <div id="uninstall-result" class="alert" style="display: none;"></div>
+
+        <div id="result-log" class="result-log"></div>
+
+        <div style="margin-top: 20px;">
+            <button id="uninstall-btn" class="btn btn-danger" onclick="confirmUninstall()">
+                <i class="fas fa-trash"></i> Uninstall Plugin
+            </button>
+            <button id="refresh-btn" class="btn btn-primary" onclick="loadStatus()" style="margin-left: 10px;">
+                <i class="fas fa-sync"></i> Refresh Status
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function callAPI(action, payload = {}) {
+        try {
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, payload })
+            });
+            const data = await response.json();
+            if (!data.ok) throw new Error(data.error?.message || 'Unknown error');
+            return data.data;
+        } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+        }
+    }
+
+    async function loadStatus() {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('status-info').style.display = 'none';
+        document.getElementById('uninstall-section').style.display = 'none';
+
+        try {
+            const status = await callAPI('get_status');
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('status-info').style.display = 'block';
+            document.getElementById('uninstall-section').style.display = 'block';
+
+            // Installation status
+            const installBadge = document.getElementById('install-status');
+            if (status.installed) {
+                installBadge.textContent = 'Installed';
+                installBadge.className = 'status-badge status-ok';
+            } else {
+                installBadge.textContent = 'Not Installed';
+                installBadge.className = 'status-badge status-error';
+            }
+
+            // cPanel status
+            document.getElementById('cpanel-status').textContent =
+                status.cpanel_installed ? 'Installed (Jupiter/Paper Lantern)' : 'Not installed';
+
+            // Cron status
+            document.getElementById('cron-status').textContent =
+                status.cron_installed ? 'Active (daily at 3 AM)' : 'Not configured';
+
+            // Backup info
+            if (status.backup_count > 0) {
+                document.getElementById('backup-info').textContent =
+                    status.backup_count + ' backup(s), ' + status.backup_size_formatted;
+            } else {
+                document.getElementById('backup-info').textContent = 'No backups';
+            }
+
+            // Log info
+            if (status.log_files && status.log_files.length > 0) {
+                document.getElementById('log-info').textContent =
+                    status.log_files.length + ' log file(s)';
+            } else {
+                document.getElementById('log-info').textContent = 'No log files';
+            }
+
+        } catch (error) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('status-info').style.display = 'block';
+            document.getElementById('install-status').textContent = 'Error';
+            document.getElementById('install-status').className = 'status-badge status-error';
+        }
+    }
+
+    function confirmUninstall() {
+        if (!confirm('Are you sure you want to uninstall Simplify Manual WP Actions?\n\nThis will remove:\n- All plugin files\n- All backups\n- All log files\n- Cron job\n\nThis cannot be undone!')) {
+            return;
+        }
+
+        doUninstall();
+    }
+
+    async function doUninstall() {
+        const btn = document.getElementById('uninstall-btn');
+        const resultDiv = document.getElementById('uninstall-result');
+        const logDiv = document.getElementById('result-log');
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uninstalling...';
+        resultDiv.style.display = 'none';
+        logDiv.style.display = 'none';
+
+        try {
+            const result = await callAPI('uninstall');
+
+            logDiv.style.display = 'block';
+            logDiv.innerHTML = result.results.map(r =>
+                '<div class="' + (r.includes('Failed') ? 'error' : 'success') + '">' + r + '</div>'
+            ).join('');
+
+            resultDiv.style.display = 'block';
+            if (result.success) {
+                resultDiv.className = 'alert alert-success';
+                resultDiv.innerHTML = '<strong>Success!</strong> ' + result.message +
+                    '<br><br>You will be redirected to the WHM home page in 5 seconds...';
+
+                setTimeout(function() {
+                    window.location.href = '/';
+                }, 5000);
+            } else {
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.innerHTML = '<strong>Partial Success:</strong> ' + result.message;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-trash"></i> Retry Uninstall';
+            }
+
+        } catch (error) {
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.innerHTML = '<strong>Error:</strong> ' + error.message;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-trash"></i> Uninstall Plugin';
+        }
+    }
+
+    // Load status on page load
+    loadStatus();
+</script>
+
+[% END %]
