@@ -12,11 +12,15 @@ use lib '/usr/local/cpanel';
 use Whostmgr::ACLS();
 use Cpanel::JSON();
 use CGI();
-use File::Path qw(remove_tree);
+use File::Path qw(remove_tree make_path);
+use File::Temp qw(tempdir);
+use File::Copy qw(copy);
 
 Whostmgr::ACLS::init_acls();
 
 # Constants
+my $PLUGIN_VERSION = '1.0.0';
+my $GITHUB_REPO = 'https://github.com/ryonwhyte/simplify-manual-wp-actions.git';
 my $CACHE_DIR = '/var/cache/simplify_manual_wp_actions';
 my $BACKUP_DIR = "$CACHE_DIR/backups";
 my $LOG_DIR = '/var/log/simplify_manual_wp_actions';
@@ -90,6 +94,9 @@ sub handle_api_request {
     elsif ($action eq 'uninstall') {
         do_uninstall();
     }
+    elsif ($action eq 'update_plugin') {
+        do_update();
+    }
     else {
         print_json_error('unknown_action', "Unknown action: $action");
     }
@@ -102,6 +109,7 @@ sub handle_api_request {
 sub get_status {
     my %status = (
         installed => 0,
+        version => $PLUGIN_VERSION,
         backup_count => 0,
         backup_size => 0,
         backup_size_formatted => '0 Bytes',
@@ -249,6 +257,92 @@ sub do_uninstall {
         results => \@results,
         errors => $errors,
         message => $errors == 0 ? 'Plugin uninstalled successfully' : "Uninstall completed with $errors error(s)"
+    });
+}
+
+###############################################################################
+# Update Plugin
+###############################################################################
+
+sub do_update {
+    my @results;
+    my $errors = 0;
+    my $temp_dir;
+
+    eval {
+        # Create temp directory for git clone
+        $temp_dir = tempdir(CLEANUP => 0);
+        push @results, "Created temp directory: $temp_dir";
+
+        # Check if git is available
+        my $git_check = `which git 2>/dev/null`;
+        unless ($git_check) {
+            die "Git is not installed on this system";
+        }
+        push @results, "Git is available";
+
+        # Clone the repository
+        push @results, "Cloning from $GITHUB_REPO...";
+        my $clone_output = `git clone --depth 1 "$GITHUB_REPO" "$temp_dir/repo" 2>&1`;
+        my $clone_status = $?;
+
+        if ($clone_status != 0) {
+            die "Failed to clone repository: $clone_output";
+        }
+        push @results, "Repository cloned successfully";
+
+        # Check if install.sh exists
+        my $install_script = "$temp_dir/repo/install.sh";
+        unless (-f $install_script) {
+            die "install.sh not found in repository";
+        }
+        push @results, "Found install.sh";
+
+        # Make install.sh executable
+        chmod 0755, $install_script;
+
+        # Run the installation script
+        push @results, "Running install.sh...";
+
+        # Change to repo directory and run install
+        my $install_output = `cd "$temp_dir/repo" && bash install.sh 2>&1`;
+        my $install_status = $?;
+
+        # Parse install output for key results
+        foreach my $line (split /\n/, $install_output) {
+            if ($line =~ /\[✓\]/ || $line =~ /\[✗\]/ || $line =~ /\[!\]/) {
+                # Clean up ANSI codes
+                $line =~ s/\033\[[0-9;]*m//g;
+                push @results, $line;
+            }
+        }
+
+        if ($install_status != 0) {
+            push @results, "Warning: install.sh exited with non-zero status";
+            $errors++;
+        } else {
+            push @results, "Installation completed successfully";
+        }
+    };
+
+    if ($@) {
+        push @results, "Error: $@";
+        $errors++;
+    }
+
+    # Cleanup temp directory
+    if ($temp_dir && -d $temp_dir) {
+        eval {
+            remove_tree($temp_dir, { safe => 1 });
+            push @results, "Cleaned up temp directory";
+        };
+    }
+
+    print_json_success({
+        success => $errors == 0 ? Cpanel::JSON::true : Cpanel::JSON::false,
+        results => \@results,
+        errors => $errors,
+        message => $errors == 0 ? 'Plugin updated successfully' : "Update completed with $errors error(s)"
     });
 }
 

@@ -122,6 +122,12 @@ sub handle_api_request {
     elsif ($action eq 'delete_all_backups') {
         delete_all_backups($cpanel_user);
     }
+    elsif ($action eq 'delete_backup') {
+        delete_backup($cpanel_user, $payload);
+    }
+    elsif ($action eq 'restore_backup') {
+        restore_backup($cpanel_user, $payload);
+    }
     else {
         print_json_error('unknown_action', "Unknown action: $action");
     }
@@ -525,6 +531,13 @@ sub create_backup {
     my $timestamp = time();
     my $backup_filename = "${site_hash}_${slug}_${timestamp}.zip";
     my $backup_path = "$BACKUP_DIR/$backup_filename";
+    my $meta_path = "$BACKUP_DIR/${site_hash}_${slug}_${timestamp}.json";
+
+    # Extract domain from site path for display
+    my $domain = $site_path;
+    $domain =~ s|.*/public_html/?||;
+    $domain =~ s|^/||;
+    $domain = $domain || 'main site';
 
     # Create zip backup
     my $zip = Archive::Zip->new();
@@ -537,7 +550,24 @@ sub create_backup {
         return '';
     }
 
-    write_audit_log($cpanel_user, 'BACKUP_CREATED', "site=$site_path slug=$slug backup=$backup_filename", 'success');
+    # Save metadata alongside backup
+    my $metadata = {
+        site_path => $site_path,
+        target_path => $target_path,
+        slug => $slug,
+        type => $type,
+        domain => $domain,
+        created => $timestamp,
+        cpanel_user => $cpanel_user,
+        backup_file => $backup_filename
+    };
+
+    if (open my $fh, '>', $meta_path) {
+        print $fh Cpanel::JSON::Dump($metadata);
+        close $fh;
+    }
+
+    write_audit_log($cpanel_user, 'BACKUP_CREATED', "site=$site_path slug=$slug type=$type backup=$backup_filename", 'success');
 
     return $backup_path;
 }
@@ -903,10 +933,10 @@ sub list_backups {
     my @backups;
     my $total_size = 0;
 
-    return { backups => [], total_size => 0, total_size_formatted => '0 Bytes' }
+    return { backups => [], total_size => 0, total_size_formatted => '0 Bytes', count => 0 }
         unless -d $BACKUP_DIR;
 
-    opendir(my $dh, $BACKUP_DIR) or return { backups => [], total_size => 0 };
+    opendir(my $dh, $BACKUP_DIR) or return { backups => [], total_size => 0, count => 0 };
     my @files = grep { /\.zip$/ && -f "$BACKUP_DIR/$_" } readdir($dh);
     closedir($dh);
 
@@ -921,14 +951,34 @@ sub list_backups {
         # Parse filename: {site_hash}_{slug}_{timestamp}.zip
         my ($site_hash, $slug, $timestamp) = $file =~ /^([a-f0-9]+)_(.+)_(\d+)\.zip$/;
 
+        # Try to load metadata from JSON file
+        my $meta_file = $file;
+        $meta_file =~ s/\.zip$/.json/;
+        my $meta_path = "$BACKUP_DIR/$meta_file";
+
+        my $metadata = {};
+        if (-f $meta_path) {
+            if (open my $fh, '<', $meta_path) {
+                local $/;
+                my $json = <$fh>;
+                close $fh;
+                $metadata = eval { Cpanel::JSON::Load($json) } || {};
+            }
+        }
+
         push @backups, {
             filename => $file,
             size => $size,
             size_formatted => format_bytes($size),
             created => $mtime,
             created_formatted => scalar(localtime($mtime)),
-            slug => $slug || 'unknown',
-            age_days => int((time() - $mtime) / 86400)
+            slug => $metadata->{slug} || $slug || 'unknown',
+            type => $metadata->{type} || 'unknown',
+            domain => $metadata->{domain} || 'unknown',
+            site_path => $metadata->{site_path} || '',
+            target_path => $metadata->{target_path} || '',
+            age_days => int((time() - $mtime) / 86400),
+            can_restore => ($metadata->{site_path} && $metadata->{target_path}) ? 1 : 0
         };
     }
 
@@ -951,15 +1001,15 @@ sub delete_all_backups {
             print_json_error('read_error', "Cannot read backup directory: $!");
             return;
         };
-        my @files = grep { /\.zip$/ && -f "$BACKUP_DIR/$_" } readdir($dh);
+        my @files = grep { /\.(zip|json)$/ && -f "$BACKUP_DIR/$_" } readdir($dh);
         closedir($dh);
 
         foreach my $file (@files) {
             my $path = "$BACKUP_DIR/$file";
             if (unlink($path)) {
-                $deleted++;
+                $deleted++ if $file =~ /\.zip$/;  # Only count zip files
             } else {
-                push @errors, "Failed to delete $file: $!";
+                push @errors, "Failed to delete $file: $!" if $file =~ /\.zip$/;
             }
         }
     }
@@ -981,6 +1031,141 @@ sub delete_all_backups {
             message => "Successfully deleted $deleted backup(s)"
         });
     }
+}
+
+sub delete_backup {
+    my ($cpanel_user, $payload) = @_;
+
+    my $filename = $payload->{filename};
+
+    unless ($filename && $filename =~ /^[a-f0-9]+_.+_\d+\.zip$/) {
+        print_json_error('invalid_filename', 'Invalid backup filename');
+        return;
+    }
+
+    my $backup_path = "$BACKUP_DIR/$filename";
+    my $meta_path = $backup_path;
+    $meta_path =~ s/\.zip$/.json/;
+
+    unless (-f $backup_path) {
+        print_json_error('not_found', 'Backup file not found');
+        return;
+    }
+
+    # Delete backup file
+    unless (unlink($backup_path)) {
+        print_json_error('delete_failed', "Failed to delete backup: $!");
+        return;
+    }
+
+    # Delete metadata file if exists
+    unlink($meta_path) if -f $meta_path;
+
+    write_audit_log($cpanel_user, 'DELETE_BACKUP', "file=$filename", 'success');
+
+    print_json_success({
+        success => Cpanel::JSON::true,
+        message => "Backup deleted successfully"
+    });
+}
+
+sub restore_backup {
+    my ($cpanel_user, $payload) = @_;
+
+    my $filename = $payload->{filename};
+
+    unless ($filename && $filename =~ /^[a-f0-9]+_.+_\d+\.zip$/) {
+        print_json_error('invalid_filename', 'Invalid backup filename');
+        return;
+    }
+
+    my $backup_path = "$BACKUP_DIR/$filename";
+    my $meta_path = $backup_path;
+    $meta_path =~ s/\.zip$/.json/;
+
+    unless (-f $backup_path) {
+        print_json_error('not_found', 'Backup file not found');
+        return;
+    }
+
+    # Load metadata
+    unless (-f $meta_path) {
+        print_json_error('no_metadata', 'Backup metadata not found. Cannot restore without knowing the target location.');
+        return;
+    }
+
+    my $metadata;
+    if (open my $fh, '<', $meta_path) {
+        local $/;
+        my $json = <$fh>;
+        close $fh;
+        $metadata = eval { Cpanel::JSON::Load($json) };
+    }
+
+    unless ($metadata && $metadata->{site_path} && $metadata->{target_path}) {
+        print_json_error('invalid_metadata', 'Backup metadata is incomplete');
+        return;
+    }
+
+    my $site_path = $metadata->{site_path};
+    my $target_path = $metadata->{target_path};
+    my $slug = $metadata->{slug};
+    my $type = $metadata->{type};
+
+    # Security: Validate paths
+    my $homedir = (getpwnam($cpanel_user))[7];
+    unless ($homedir && $site_path =~ /^\Q$homedir\E/) {
+        print_json_error('access_denied', 'Cannot restore to this location');
+        return;
+    }
+
+    # Verify the site still exists
+    unless (-d $site_path) {
+        print_json_error('site_not_found', "WordPress site no longer exists at $site_path");
+        return;
+    }
+
+    # Determine the restore path
+    my $restore_path = $target_path;
+
+    # Remove existing plugin/theme if it exists
+    if (-d $restore_path) {
+        remove_tree($restore_path, { safe => 1 });
+    }
+
+    # Extract backup
+    my $zip = Archive::Zip->new();
+    unless ($zip->read($backup_path) == AZ_OK) {
+        print_json_error('read_failed', 'Failed to read backup zip file');
+        return;
+    }
+
+    # Get parent directory
+    my $parent_dir = $restore_path;
+    $parent_dir =~ s|/[^/]+$||;
+
+    # Extract to parent directory (zip contains the slug folder)
+    unless ($zip->extractTree('', "$parent_dir/") == AZ_OK) {
+        print_json_error('extract_failed', 'Failed to extract backup');
+        return;
+    }
+
+    # Fix ownership
+    my @wp_content_stat = stat("$site_path/wp-content");
+    if (@wp_content_stat) {
+        my ($uid, $gid) = @wp_content_stat[4, 5];
+        chown_recursive($restore_path, $uid, $gid);
+    }
+
+    write_audit_log($cpanel_user, 'RESTORE_BACKUP', "file=$filename site=$site_path slug=$slug", 'success');
+
+    print_json_success({
+        success => Cpanel::JSON::true,
+        message => "Successfully restored $slug to $metadata->{domain}",
+        site_path => $site_path,
+        slug => $slug,
+        type => $type
+    });
 }
 
 sub format_bytes {

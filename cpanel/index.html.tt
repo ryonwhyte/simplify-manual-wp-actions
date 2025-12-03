@@ -389,22 +389,36 @@ SET dprefix = CPANEL.CPVAR.dprefix;
             <div id="backup-info" style="margin-bottom: 15px;">
                 <p style="color: #718096;">Loading backup information...</p>
             </div>
-            <div id="backup-actions" style="display: none;">
+            <div id="backup-actions" style="display: none; margin-bottom: 15px;">
                 <button id="refresh-backups-btn" class="btn btn-primary" style="margin-right: 10px;">
                     <i class="fa fa-refresh"></i> Refresh
                 </button>
                 <button id="delete-all-backups-btn" class="btn btn-danger">
                     <i class="fa fa-trash"></i> Delete All Backups
                 </button>
+                <div style="display: inline-block; margin-left: 20px;">
+                    <label style="font-weight: normal; margin-right: 10px;">
+                        <input type="radio" name="backup-filter" value="all" checked> All
+                    </label>
+                    <label style="font-weight: normal; margin-right: 10px;">
+                        <input type="radio" name="backup-filter" value="plugin"> Plugins
+                    </label>
+                    <label style="font-weight: normal;">
+                        <input type="radio" name="backup-filter" value="theme"> Themes
+                    </label>
+                </div>
             </div>
             <div id="backup-list" style="margin-top: 15px; display: none;">
                 <table class="table table-striped" style="font-size: 13px;">
                     <thead>
                         <tr>
+                            <th>Type</th>
                             <th>Plugin/Theme</th>
+                            <th>Website</th>
                             <th>Size</th>
                             <th>Created</th>
                             <th>Age</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="backup-table-body">
@@ -819,14 +833,23 @@ SET dprefix = CPANEL.CPVAR.dprefix;
     });
 
     // Backup Management
+    let allBackups = [];
+    let currentFilter = 'all';
+
     async function loadBackups() {
         try {
             const data = await callAPI('list_backups');
+            allBackups = data.backups || [];
             displayBackupInfo(data);
         } catch (error) {
             document.getElementById('backup-info').innerHTML =
                 '<p style="color: #c53030;">Failed to load backup information</p>';
         }
+    }
+
+    function getFilteredBackups() {
+        if (currentFilter === 'all') return allBackups;
+        return allBackups.filter(b => b.type === currentFilter);
     }
 
     function displayBackupInfo(data) {
@@ -850,15 +873,90 @@ SET dprefix = CPANEL.CPVAR.dprefix;
         actionsDiv.style.display = 'block';
         listDiv.style.display = 'block';
 
-        tbody.innerHTML = data.backups.map(b => `
-            <tr>
-                <td><strong>${escapeHtml(b.slug)}</strong></td>
-                <td>${escapeHtml(b.size_formatted)}</td>
-                <td>${escapeHtml(b.created_formatted)}</td>
-                <td>${b.age_days} day(s)</td>
-            </tr>
-        `).join('');
+        renderBackupTable();
     }
+
+    function renderBackupTable() {
+        const tbody = document.getElementById('backup-table-body');
+        const filtered = getFilteredBackups();
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #718096;">No backups match the current filter</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = filtered.map(b => {
+            const typeLabel = b.type === 'plugin' ? '<span style="background:#4299e1;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;">Plugin</span>' :
+                              b.type === 'theme' ? '<span style="background:#9f7aea;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;">Theme</span>' :
+                              '<span style="background:#a0aec0;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;">Unknown</span>';
+
+            const restoreBtn = b.can_restore ?
+                `<button class="btn btn-primary" style="padding:4px 8px;font-size:11px;margin-right:5px;" onclick="restoreBackup('${escapeHtml(b.filename)}')"><i class="fa fa-undo"></i> Restore</button>` :
+                `<span style="color:#a0aec0;font-size:11px;" title="Metadata missing - cannot restore">No metadata</span>`;
+
+            return `
+                <tr data-type="${escapeHtml(b.type)}">
+                    <td>${typeLabel}</td>
+                    <td><strong>${escapeHtml(b.slug)}</strong></td>
+                    <td title="${escapeHtml(b.site_path)}">${escapeHtml(b.domain)}</td>
+                    <td>${escapeHtml(b.size_formatted)}</td>
+                    <td>${escapeHtml(b.created_formatted)}</td>
+                    <td>${b.age_days} day(s)</td>
+                    <td>
+                        ${restoreBtn}
+                        <button class="btn btn-danger" style="padding:4px 8px;font-size:11px;" onclick="deleteBackup('${escapeHtml(b.filename)}')"><i class="fa fa-trash"></i></button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function restoreBackup(filename) {
+        const backup = allBackups.find(b => b.filename === filename);
+        if (!backup) return;
+
+        const confirmMsg = `Are you sure you want to restore "${backup.slug}" to ${backup.domain}?\n\nThis will replace the current version of this ${backup.type} with the backup.`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            showLoading();
+            const result = await callAPI('restore_backup', { filename });
+            hideLoading();
+
+            if (result.success) {
+                showSuccess(result.message);
+            } else {
+                showError(result.message || 'Restore failed');
+            }
+        } catch (error) {
+            hideLoading();
+            showError('Restore failed: ' + error.message);
+        }
+    }
+
+    async function deleteBackup(filename) {
+        if (!confirm('Are you sure you want to delete this backup? This cannot be undone.')) return;
+
+        try {
+            const result = await callAPI('delete_backup', { filename });
+            if (result.success) {
+                showSuccess(result.message);
+                loadBackups();
+            } else {
+                showError(result.message || 'Delete failed');
+            }
+        } catch (error) {
+            showError('Delete failed: ' + error.message);
+        }
+    }
+
+    // Filter event listeners
+    document.querySelectorAll('input[name="backup-filter"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            currentFilter = this.value;
+            renderBackupTable();
+        });
+    });
 
     document.getElementById('refresh-backups-btn').addEventListener('click', loadBackups);
 

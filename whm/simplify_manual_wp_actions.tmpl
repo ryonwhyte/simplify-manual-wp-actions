@@ -132,6 +132,30 @@ WRAPPER 'master_templates/master.tmpl'
     }
     .result-log .success { color: #48bb78; }
     .result-log .error { color: #f56565; }
+    .version-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        background: #4a5568;
+        color: #fff;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+    .btn-success {
+        background: #48bb78;
+        color: white;
+    }
+    .btn-success:hover {
+        background: #38a169;
+    }
+    .update-info {
+        background: #ebf8ff;
+        border: 1px solid #90cdf4;
+        color: #2b6cb0;
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+    }
 </style>
 
 <div class="smwpa-container">
@@ -150,6 +174,10 @@ WRAPPER 'master_templates/master.tmpl'
                 <span class="info-value"><span id="install-status" class="status-badge">Checking...</span></span>
             </div>
             <div class="info-row">
+                <span class="info-label">Version</span>
+                <span class="info-value"><span id="plugin-version" class="version-badge">-</span></span>
+            </div>
+            <div class="info-row">
                 <span class="info-label">cPanel Plugin</span>
                 <span class="info-value" id="cpanel-status">-</span>
             </div>
@@ -165,6 +193,25 @@ WRAPPER 'master_templates/master.tmpl'
                 <span class="info-label">Log Files</span>
                 <span class="info-value" id="log-info">-</span>
             </div>
+        </div>
+    </div>
+
+    <div class="wp-card" id="update-section" style="display: none;">
+        <h2><i class="fas fa-download"></i> Update Plugin</h2>
+
+        <div class="update-info">
+            <strong><i class="fas fa-info-circle"></i> Note:</strong>
+            Updates are pulled directly from GitHub. Your backups and logs will be preserved.
+        </div>
+
+        <div id="update-result" class="alert" style="display: none;"></div>
+
+        <div id="update-log" class="result-log"></div>
+
+        <div style="margin-top: 20px;">
+            <button id="update-btn" class="btn btn-success" onclick="confirmUpdate()">
+                <i class="fas fa-download"></i> Update to Latest Version
+            </button>
         </div>
     </div>
 
@@ -211,6 +258,7 @@ WRAPPER 'master_templates/master.tmpl'
     async function loadStatus() {
         document.getElementById('loading').style.display = 'block';
         document.getElementById('status-info').style.display = 'none';
+        document.getElementById('update-section').style.display = 'none';
         document.getElementById('uninstall-section').style.display = 'none';
 
         try {
@@ -218,6 +266,7 @@ WRAPPER 'master_templates/master.tmpl'
 
             document.getElementById('loading').style.display = 'none';
             document.getElementById('status-info').style.display = 'block';
+            document.getElementById('update-section').style.display = 'block';
             document.getElementById('uninstall-section').style.display = 'block';
 
             // Installation status
@@ -229,6 +278,9 @@ WRAPPER 'master_templates/master.tmpl'
                 installBadge.textContent = 'Not Installed';
                 installBadge.className = 'status-badge status-error';
             }
+
+            // Version
+            document.getElementById('plugin-version').textContent = 'v' + (status.version || '1.0.0');
 
             // cPanel status
             document.getElementById('cpanel-status').textContent =
@@ -310,6 +362,57 @@ WRAPPER 'master_templates/master.tmpl'
             resultDiv.innerHTML = '<strong>Error:</strong> ' + error.message;
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-trash"></i> Uninstall Plugin';
+        }
+    }
+
+    function confirmUpdate() {
+        if (!confirm('Update Simplify Manual WP Actions?\n\nThis will:\n- Download the latest version from GitHub\n- Reinstall the plugin\n\nYour backups and logs will be preserved.')) {
+            return;
+        }
+
+        doUpdate();
+    }
+
+    async function doUpdate() {
+        const btn = document.getElementById('update-btn');
+        const resultDiv = document.getElementById('update-result');
+        const logDiv = document.getElementById('update-log');
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+        resultDiv.style.display = 'none';
+        logDiv.style.display = 'none';
+
+        try {
+            const result = await callAPI('update_plugin');
+
+            logDiv.style.display = 'block';
+            logDiv.innerHTML = result.results.map(r =>
+                '<div class="' + (r.includes('Error') || r.includes('Failed') ? 'error' : 'success') + '">' + r + '</div>'
+            ).join('');
+
+            resultDiv.style.display = 'block';
+            if (result.success) {
+                resultDiv.className = 'alert alert-success';
+                resultDiv.innerHTML = '<strong>Success!</strong> ' + result.message +
+                    '<br><br>The page will reload in 3 seconds...';
+
+                setTimeout(function() {
+                    window.location.reload();
+                }, 3000);
+            } else {
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.innerHTML = '<strong>Warning:</strong> ' + result.message;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download"></i> Retry Update';
+            }
+
+        } catch (error) {
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.innerHTML = '<strong>Error:</strong> ' + error.message;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-download"></i> Update to Latest Version';
         }
     }
 
