@@ -2,7 +2,7 @@
 
 A WHM/cPanel plugin for bulk updating WordPress plugins and themes across multiple sites via manual zip file upload.
 
-**Version**: 1.0.1
+**Version**: 1.0.2
 
 ## Features
 
@@ -174,6 +174,10 @@ yum install git -y
 ```
 
 ## Changelog
+
+### v1.0.2
+- Fixed update feature connection error handling
+- Better user feedback when cPanel restarts during update
 
 ### v1.0.1
 - Added backup management with restore functionality

@@ -366,7 +366,7 @@ WRAPPER 'master_templates/master.tmpl'
     }
 
     function confirmUpdate() {
-        if (!confirm('Update Simplify Manual WP Actions?\n\nThis will:\n- Download the latest version from GitHub\n- Reinstall the plugin\n\nYour backups and logs will be preserved.')) {
+        if (!confirm('Update Simplify Manual WP Actions?\n\nThis will:\n- Download the latest version from GitHub\n- Reinstall the plugin\n- Restart the cPanel service\n\nYour backups and logs will be preserved.\n\nNOTE: The page will disconnect during restart. Please wait 10-15 seconds then refresh the page manually.')) {
             return;
         }
 
@@ -408,11 +408,21 @@ WRAPPER 'master_templates/master.tmpl'
             }
 
         } catch (error) {
-            resultDiv.style.display = 'block';
-            resultDiv.className = 'alert alert-danger';
-            resultDiv.innerHTML = '<strong>Error:</strong> ' + error.message;
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-download"></i> Update to Latest Version';
+            // Check if it's a connection error (likely due to cPanel restart)
+            if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'alert alert-info';
+                resultDiv.innerHTML = '<strong>Update in progress...</strong><br><br>' +
+                    'The cPanel service is restarting. This is normal.<br><br>' +
+                    'Please wait 10-15 seconds, then <a href="javascript:location.reload()">click here to refresh</a> or press F5.';
+                btn.style.display = 'none';
+            } else {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.innerHTML = '<strong>Error:</strong> ' + error.message;
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download"></i> Update to Latest Version';
+            }
         }
     }
 

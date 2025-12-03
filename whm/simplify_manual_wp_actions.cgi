@@ -19,7 +19,7 @@ use File::Copy qw(copy);
 Whostmgr::ACLS::init_acls();
 
 # Constants
-my $PLUGIN_VERSION = '1.0.1';
+my $PLUGIN_VERSION = '1.0.2';
 my $GITHUB_REPO = 'https://github.com/ryonwhyte/simplify-manual-wp-actions.git';
 my $CACHE_DIR = '/var/cache/simplify_manual_wp_actions';
 my $BACKUP_DIR = "$CACHE_DIR/backups";
