@@ -272,6 +272,10 @@ SET dprefix = CPANEL.CPVAR.dprefix;
         color: #276749;
     }
     .site-status.not-installed {
+        background: #fef3c7;
+        color: #92400e;
+    }
+    .site-status.not-installed {
         background: #fed7d7;
         color: #c53030;
     }
@@ -318,6 +322,27 @@ SET dprefix = CPANEL.CPVAR.dprefix;
             </div>
         </div>
 
+        <!-- Step 1.5: Select Operation Mode -->
+        <div class="wp-card" id="operation-mode-section">
+            <h2><i class="fa fa-exchange"></i> Step 1.5: Select Operation</h2>
+            <div class="radio-group">
+                <label>
+                    <input type="radio" name="operation-mode" value="update" checked>
+                    <i class="fa fa-refresh"></i> Update Existing
+                    <span style="color: #718096; font-size: 12px; display: block; margin-left: 26px;">
+                        Update sites where the plugin/theme is already installed
+                    </span>
+                </label>
+                <label>
+                    <input type="radio" name="operation-mode" value="install">
+                    <i class="fa fa-plus-circle"></i> Install New
+                    <span style="color: #718096; font-size: 12px; display: block; margin-left: 26px;">
+                        Install on sites where the plugin/theme is NOT installed
+                    </span>
+                </label>
+            </div>
+        </div>
+
         <!-- Step 2: Upload Zip File -->
         <div class="wp-card">
             <h2><i class="fa fa-upload"></i> Step 2: Upload Plugin/Theme Zip</h2>
@@ -342,8 +367,8 @@ SET dprefix = CPANEL.CPVAR.dprefix;
 
         <!-- Step 3: Select WordPress Sites -->
         <div class="wp-card" id="sites-section" style="display: none;">
-            <h2><i class="fa fa-globe"></i> Step 3: Select WordPress Sites to Update</h2>
-            <p style="color: #718096; margin-bottom: 15px;">Only sites where <strong id="target-item-name"></strong> is already installed are shown below.</p>
+            <h2><i class="fa fa-globe"></i> Step 3: Select WordPress Sites to <span id="step3-action">Update</span></h2>
+            <p id="sites-description" style="color: #718096; margin-bottom: 15px;">Only sites where <strong id="target-item-name"></strong> is already installed are shown below.</p>
 
             <div class="selection-actions">
                 <button id="select-all-btn" class="btn btn-primary"><i class="fa fa-check-square-o"></i> Select All</button>
@@ -368,18 +393,25 @@ SET dprefix = CPANEL.CPVAR.dprefix;
             </table>
         </div>
 
-        <!-- Step 4: Options and Start Update -->
+        <!-- Step 4: Options and Start Update/Install -->
         <div class="wp-card" id="update-section" style="display: none;">
-            <h2><i class="fa fa-rocket"></i> Step 4: Update Options</h2>
-            <div class="form-group">
+            <h2><i class="fa fa-rocket"></i> Step 4: <span id="step4-title">Update</span> Options</h2>
+            <div class="form-group" id="backup-option">
                 <label>
                     <input type="checkbox" id="create-backup" checked style="width: 18px; height: 18px; margin-right: 8px;">
                     Create backup before updating (recommended)
                 </label>
                 <p style="color: #718096; font-size: 13px; margin-top: 5px;">Backups are automatically deleted after 14 days</p>
             </div>
+            <div class="form-group" id="activate-option" style="display: none;">
+                <label>
+                    <input type="checkbox" id="activate-after" style="width: 18px; height: 18px; margin-right: 8px;">
+                    Activate plugin after installation
+                </label>
+                <p style="color: #718096; font-size: 13px; margin-top: 5px;">Automatically activate the plugin on each site after installation</p>
+            </div>
             <button id="start-update-btn" class="btn btn-success" style="font-size: 16px; padding: 15px 30px;">
-                <i class="fa fa-play"></i> Start Bulk Update
+                <i class="fa fa-play"></i> <span id="start-btn-text">Start Bulk Update</span>
             </button>
         </div>
 
@@ -458,9 +490,11 @@ SET dprefix = CPANEL.CPVAR.dprefix;
     // State
     let state = {
         updateType: 'plugin',
+        operationMode: 'update',      // 'update' or 'install'
         uploadedFile: null,
         uploadResult: null,
         sites: [],
+        allSitesWithStatus: [],       // Stores unfiltered detection results
         selectedSites: new Set()
     };
 
@@ -549,10 +583,44 @@ SET dprefix = CPANEL.CPVAR.dprefix;
         });
     });
 
+    // Operation mode change handler
+    document.querySelectorAll('input[name="operation-mode"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            state.operationMode = this.value;
+            updateUIForMode();
+            // Re-filter sites if we already have detection results
+            if (state.allSitesWithStatus.length > 0) {
+                filterAndDisplaySites();
+            }
+        });
+    });
+
+    // Update UI elements based on operation mode
+    function updateUIForMode() {
+        const isInstallMode = state.operationMode === 'install';
+        const isPlugin = state.updateType === 'plugin';
+
+        // Toggle backup/activate options visibility
+        const backupOption = document.getElementById('backup-option');
+        const activateOption = document.getElementById('activate-option');
+        if (backupOption) backupOption.style.display = isInstallMode ? 'none' : 'block';
+        if (activateOption) activateOption.style.display = (isInstallMode && isPlugin) ? 'block' : 'none';
+
+        // Update button and title text
+        const actionWord = isInstallMode ? 'Install' : 'Update';
+        const step3Action = document.getElementById('step3-action');
+        const step4Title = document.getElementById('step4-title');
+        const startBtnText = document.getElementById('start-btn-text');
+        if (step3Action) step3Action.textContent = actionWord;
+        if (step4Title) step4Title.textContent = actionWord;
+        if (startBtnText) startBtnText.textContent = `Start Bulk ${actionWord}`;
+    }
+
     function resetUploadState() {
         state.uploadedFile = null;
         state.uploadResult = null;
         state.sites = [];
+        state.allSitesWithStatus = [];
         state.selectedSites.clear();
 
         document.getElementById('zip-file').value = '';
@@ -643,19 +711,44 @@ SET dprefix = CPANEL.CPVAR.dprefix;
             slug: state.uploadResult.slug
         });
 
-        // Filter to only installed sites
-        state.sites = result.sites.filter(s => s.is_installed);
+        // Store all sites with their installation status
+        state.allSitesWithStatus = result.sites;
+
+        // Filter and display based on current operation mode
+        filterAndDisplaySites();
+    }
+
+    function filterAndDisplaySites() {
+        // Filter based on operation mode
+        if (state.operationMode === 'update') {
+            state.sites = state.allSitesWithStatus.filter(s => s.is_installed);
+        } else {
+            state.sites = state.allSitesWithStatus.filter(s => !s.is_installed);
+        }
+
+        const itemName = state.uploadResult.name;
+        const isInstallMode = state.operationMode === 'install';
 
         if (state.sites.length === 0) {
-            showError(`${state.uploadResult.name} is not installed on any of your WordPress sites`);
+            const modeText = isInstallMode ? 'available to install on' : 'installed on';
+            showError(`${itemName} is not ${modeText} any of your WordPress sites`);
             document.getElementById('sites-section').style.display = 'none';
             document.getElementById('update-section').style.display = 'none';
             return;
         }
 
-        // Display sites
-        document.getElementById('target-item-name').textContent = state.uploadResult.name;
+        // Update description based on mode
+        const description = document.getElementById('sites-description');
+        if (description) {
+            const descText = isInstallMode
+                ? `Only sites where <strong>${escapeHtml(itemName)}</strong> is NOT installed are shown below.`
+                : `Only sites where <strong>${escapeHtml(itemName)}</strong> is already installed are shown below.`;
+            description.innerHTML = descText;
+        }
+
+        document.getElementById('target-item-name').textContent = itemName;
         displaySites();
+        updateUIForMode();
         document.getElementById('sites-section').style.display = 'block';
         document.getElementById('update-section').style.display = 'block';
     }
@@ -664,17 +757,25 @@ SET dprefix = CPANEL.CPVAR.dprefix;
         const tbody = document.getElementById('sites-table');
         document.getElementById('total-count').textContent = state.sites.length;
 
-        tbody.innerHTML = state.sites.map((site, index) => `
-            <tr>
-                <td class="checkbox-cell">
-                    <input type="checkbox" class="site-checkbox" data-index="${index}"
-                           data-path="${escapeHtml(site.path)}" checked>
-                </td>
-                <td title="${escapeHtml(site.path)}">${escapeHtml(site.domain)}</td>
-                <td>${escapeHtml(site.current_version || 'Unknown')}</td>
-                <td><span class="site-status installed">Installed</span></td>
-            </tr>
-        `).join('');
+        const isInstallMode = state.operationMode === 'install';
+
+        tbody.innerHTML = state.sites.map((site, index) => {
+            const statusClass = isInstallMode ? 'not-installed' : 'installed';
+            const statusText = isInstallMode ? 'Not Installed' : 'Installed';
+            const versionText = isInstallMode ? 'N/A' : (site.current_version || 'Unknown');
+
+            return `
+                <tr>
+                    <td class="checkbox-cell">
+                        <input type="checkbox" class="site-checkbox" data-index="${index}"
+                               data-path="${escapeHtml(site.path)}" checked>
+                    </td>
+                    <td title="${escapeHtml(site.path)}">${escapeHtml(site.domain)}</td>
+                    <td>${escapeHtml(versionText)}</td>
+                    <td><span class="site-status ${statusClass}">${statusText}</span></td>
+                </tr>
+            `;
+        }).join('');
 
         // Select all by default
         state.selectedSites.clear();
@@ -729,12 +830,16 @@ SET dprefix = CPANEL.CPVAR.dprefix;
 
     async function startBulkUpdate() {
         if (state.selectedSites.size === 0) {
-            showError('Please select at least one site to update');
+            showError('Please select at least one site');
             return;
         }
 
-        const createBackup = document.getElementById('create-backup').checked;
+        const isInstallMode = state.operationMode === 'install';
+        const createBackup = !isInstallMode && document.getElementById('create-backup').checked;
+        const activateAfter = isInstallMode && document.getElementById('activate-after')?.checked;
         const sitesToUpdate = Array.from(state.selectedSites).map(i => state.sites[i]);
+        const actionWord = isInstallMode ? 'Installing' : 'Updating';
+        const actionPastTense = isInstallMode ? 'Installed' : 'Updated';
 
         // Show progress modal
         const modal = document.getElementById('progress-modal');
@@ -764,16 +869,16 @@ SET dprefix = CPANEL.CPVAR.dprefix;
             progressLog.scrollTop = progressLog.scrollHeight;
         }
 
-        addLog(`Starting bulk update of ${state.uploadResult.name} (v${state.uploadResult.version})`, 'info');
-        addLog(`Updating ${total} site(s)...`, 'info');
+        addLog(`Starting bulk ${actionWord.toLowerCase()} of ${state.uploadResult.name} (v${state.uploadResult.version})`, 'info');
+        addLog(`${actionWord} ${total} site(s)...`, 'info');
 
         for (let i = 0; i < sitesToUpdate.length; i++) {
             const site = sitesToUpdate[i];
             const percent = Math.round(((i) / total) * 100);
             progressBar.style.width = percent + '%';
-            progressText.textContent = `Updating site ${i + 1} of ${total}: ${site.domain}`;
+            progressText.textContent = `${actionWord} site ${i + 1} of ${total}: ${site.domain}`;
 
-            addLog(`Updating ${site.domain}...`, 'info');
+            addLog(`${actionWord} ${site.domain}...`, 'info');
 
             try {
                 const result = await callAPI('update_site', {
@@ -782,12 +887,15 @@ SET dprefix = CPANEL.CPVAR.dprefix;
                     item_path: state.uploadResult.item_path,
                     slug: state.uploadResult.slug,
                     type: state.uploadResult.type,
-                    create_backup: createBackup
+                    create_backup: createBackup,
+                    mode: state.operationMode,
+                    activate_after: activateAfter
                 });
 
                 if (result.success) {
                     successCount++;
-                    addLog(`✓ ${site.domain} - Updated successfully`, 'success');
+                    const activatedMsg = result.activated ? ' (activated)' : '';
+                    addLog(`✓ ${site.domain} - ${actionPastTense} successfully${activatedMsg}`, 'success');
                 } else {
                     failCount++;
                     addLog(`✗ ${site.domain} - ${result.message || 'Failed'}`, 'error');
@@ -799,11 +907,12 @@ SET dprefix = CPANEL.CPVAR.dprefix;
         }
 
         // Complete
+        const completionWord = isInstallMode ? 'Installation' : 'Update';
         progressBar.style.width = '100%';
-        progressText.textContent = 'Update Complete!';
+        progressText.textContent = `${completionWord} Complete!`;
         progressIcon.className = 'fa fa-check-circle';
         progressIcon.style.color = '#48bb78';
-        progressTitle.textContent = 'Update Complete';
+        progressTitle.textContent = `${completionWord} Complete`;
 
         document.getElementById('success-count').textContent = successCount;
         document.getElementById('fail-count').textContent = failCount;
@@ -829,7 +938,8 @@ SET dprefix = CPANEL.CPVAR.dprefix;
         // Reset progress modal for next use
         document.getElementById('progress-icon').className = 'fa fa-sync fa-spin';
         document.getElementById('progress-icon').style.color = '';
-        document.getElementById('progress-title').textContent = 'Updating Sites...';
+        const actionWord = state.operationMode === 'install' ? 'Installing' : 'Updating';
+        document.getElementById('progress-title').textContent = `${actionWord} Sites...`;
     });
 
     // Backup Management

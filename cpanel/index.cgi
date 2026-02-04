@@ -435,6 +435,8 @@ sub update_site {
     my $slug = $payload->{slug} || '';
     my $type = $payload->{type} || 'plugin';
     my $create_backup = $payload->{create_backup} || 0;
+    my $mode = $payload->{mode} || 'update';           # 'update' or 'install'
+    my $activate_after = $payload->{activate_after} || 0;
 
     # Validate required params
     unless ($site_path && $temp_path && $item_path && $slug) {
@@ -470,15 +472,24 @@ sub update_site {
 
     my $target_path = "$content_dir/$slug";
 
-    # Check if the plugin/theme exists (we only update, never install new)
-    unless (-d $target_path) {
-        print_json_error('not_installed', "$type '$slug' is not installed on this site");
-        return;
+    # Mode-specific validation
+    if ($mode eq 'update') {
+        # Update mode: require existing installation
+        unless (-d $target_path) {
+            print_json_error('not_installed', "$type '$slug' is not installed on this site");
+            return;
+        }
+    } elsif ($mode eq 'install') {
+        # Install mode: reject if already installed
+        if (-d $target_path) {
+            print_json_error('already_installed', "$type '$slug' is already installed on this site");
+            return;
+        }
     }
 
-    # Create backup if requested
+    # Create backup if requested (only for update mode - nothing to backup on fresh install)
     my $backup_path = '';
-    if ($create_backup) {
+    if ($create_backup && $mode eq 'update') {
         $backup_path = create_backup($cpanel_user, $site_path, $target_path, $slug, $type);
         unless ($backup_path) {
             print_json_error('backup_failed', 'Failed to create backup');
@@ -486,12 +497,14 @@ sub update_site {
         }
     }
 
-    # Remove existing plugin/theme
-    my $removed = remove_tree($target_path, { safe => 1 });
-    unless ($removed > 0 || !-d $target_path) {
-        write_audit_log($cpanel_user, 'UPDATE_FAILED', "site=$site_path slug=$slug", 'Failed to remove old version');
-        print_json_error('remove_failed', 'Failed to remove existing version');
-        return;
+    # Remove existing plugin/theme (only for update mode)
+    if ($mode eq 'update') {
+        my $removed = remove_tree($target_path, { safe => 1 });
+        unless ($removed > 0 || !-d $target_path) {
+            write_audit_log($cpanel_user, 'UPDATE_FAILED', "site=$site_path slug=$slug", 'Failed to remove old version');
+            print_json_error('remove_failed', 'Failed to remove existing version');
+            return;
+        }
     }
 
     # Copy new version
@@ -508,12 +521,23 @@ sub update_site {
     my $gid = $stat[5];
     chown_recursive($target_path, $uid, $gid);
 
-    write_audit_log($cpanel_user, 'UPDATE_SUCCESS', "site=$site_path slug=$slug type=$type", 'success');
+    # Activate plugin after install if requested (plugins only)
+    my $activated = 0;
+    if ($mode eq 'install' && $activate_after && $type eq 'plugin') {
+        my $wp = get_wp_cli_path();
+        my $cmd = qq{$wp plugin activate "$slug" --path="$site_path" 2>&1};
+        my ($output, $exit_code) = run_wp_cli($cmd);
+        $activated = ($exit_code == 0) ? 1 : 0;
+    }
+
+    my $action = ($mode eq 'install') ? 'INSTALL_SUCCESS' : 'UPDATE_SUCCESS';
+    write_audit_log($cpanel_user, $action, "site=$site_path slug=$slug type=$type", 'success');
 
     print_json_success({
         success => Cpanel::JSON::true,
         backup_path => $backup_path,
-        message => "Successfully updated $slug"
+        activated => $activated ? Cpanel::JSON::true : Cpanel::JSON::false,
+        message => ($mode eq 'install') ? "Successfully installed $slug" : "Successfully updated $slug"
     });
 }
 
