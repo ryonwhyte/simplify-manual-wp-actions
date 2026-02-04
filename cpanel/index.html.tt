@@ -746,7 +746,6 @@ SET dprefix = CPANEL.CPVAR.dprefix;
             description.innerHTML = descText;
         }
 
-        document.getElementById('target-item-name').textContent = itemName;
         displaySites();
         updateUIForMode();
         document.getElementById('sites-section').style.display = 'block';
