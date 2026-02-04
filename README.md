@@ -1,19 +1,22 @@
 # Simplify Manual WP Actions
 
-A WHM/cPanel plugin for bulk updating WordPress plugins and themes across multiple sites via manual zip file upload.
+A WHM/cPanel plugin for bulk updating and installing WordPress plugins and themes across multiple sites via manual zip file upload.
 
-**Version**: 1.0.2
+**Version**: 1.1.0
 
 ## Features
 
 ### cPanel Interface
 - **Bulk Updates**: Update a plugin or theme across all your WordPress sites at once
-- **Smart Detection**: Only updates sites where the plugin/theme is already installed (never installs new)
-- **Plugin & Theme Support**: Toggle between updating plugins or themes
+- **Bulk Install**: Install a plugin or theme on sites where it's not yet installed
+- **Operation Mode**: Choose between "Update Existing" or "Install New" modes
+- **Smart Detection**: Shows appropriate sites based on operation mode
+- **Plugin & Theme Support**: Toggle between plugins or themes
 - **Drag & Drop Upload**: Easy zip file upload with drag & drop support
 - **Optional Backups**: Create backups before updating (14-day automatic retention)
+- **Auto-Activation**: Optionally activate plugins after installation
 - **Real-time Progress**: Watch updates happen in real-time with a detailed log
-- **Error Resilience**: Failures on one site don't stop updates on others
+- **Error Resilience**: Failures on one site don't stop operations on others
 
 ### Backup Management
 - **View Backups**: See all stored backups with metadata (type, website, date)
@@ -53,26 +56,37 @@ After installation, access the plugin:
 
 ## Usage
 
-### Updating Plugins/Themes
+### Updating or Installing Plugins/Themes
 
 #### Step 1: Select Update Type
-Choose whether you're updating a **Plugin** or a **Theme**.
+Choose whether you're working with a **Plugin** or a **Theme**.
 
-#### Step 2: Upload Zip File
+#### Step 2: Select Operation Mode
+- **Update Existing**: Update sites where the plugin/theme is already installed
+- **Install New**: Install on sites where the plugin/theme is NOT installed
+
+#### Step 3: Upload Zip File
 Drag and drop your plugin/theme zip file, or click to browse. Maximum file size is 50 MB.
 
-#### Step 3: Select Sites
-The plugin scans your WordPress installations and shows only sites where the plugin/theme is currently installed. Select which sites to update using the checkboxes.
+#### Step 4: Select Sites
+The plugin scans your WordPress installations and shows sites based on your operation mode:
+- **Update mode**: Shows only sites where the item IS installed
+- **Install mode**: Shows only sites where the item is NOT installed
 
-#### Step 4: Start Update
-Optionally enable "Create backup before updating" (recommended), then click **Start Bulk Update**.
+Select which sites to process using the checkboxes.
 
-#### Step 5: Monitor Progress
+#### Step 5: Configure Options
+- **Update mode**: Optionally enable "Create backup before updating" (recommended)
+- **Install mode**: Optionally enable "Activate plugin after installation" (plugins only)
+
+Then click **Start Bulk Update** or **Start Bulk Install**.
+
+#### Step 6: Monitor Progress
 A progress modal shows:
-- Current site being updated
+- Current site being processed
 - Progress bar
 - Live log with timestamps
-- Success/failure status for each site
+- Success/failure status for each site (including activation status for installs)
 - Final summary
 
 ### Managing Backups

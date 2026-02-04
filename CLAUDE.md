@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-A **WHM + cPanel plugin** for bulk updating WordPress plugins and themes across multiple sites via manual zip file upload. Updates only sites where the plugin/theme is already installed (never installs new).
+A **WHM + cPanel plugin** for bulk updating and installing WordPress plugins and themes across multiple sites via manual zip file upload. Supports both updating existing installations and installing on new sites.
 
-## Current Architecture (v1.0)
+## Current Architecture (v1.1)
 
 **Pure Perl Implementation:**
 - **Backend**: Perl CGI scripts with native cPanel/WHM modules
@@ -24,10 +24,13 @@ A **WHM + cPanel plugin** for bulk updating WordPress plugins and themes across 
 
 ### Core Functionality
 - **Bulk update plugins/themes** across multiple WordPress sites
+- **Bulk install plugins/themes** on sites where not yet installed
+- **Operation mode selector** - Choose between Update Existing or Install New
 - **Drag & drop zip upload** with validation
 - **Plugin vs Theme toggle** for update type selection
-- **Smart detection** - Only shows sites where item is installed
+- **Smart detection** - Shows sites based on operation mode (installed/not installed)
 - **Optional backups** before updating (14-day retention)
+- **Optional activation** - Auto-activate plugins after installation
 - **Real-time progress** display with per-site status
 - **Continue on error** - Failures don't stop remaining updates
 
@@ -54,10 +57,13 @@ A **WHM + cPanel plugin** for bulk updating WordPress plugins and themes across 
 
 ### Workflow
 1. **Select Update Type** - Plugin or Theme (radio buttons)
-2. **Upload Zip** - Drag & drop or click to browse (max 50 MB)
-3. **Select Sites** - Table shows only sites with item installed
-4. **Configure Options** - Enable/disable backup
-5. **Start Update** - Progress modal with real-time log
+2. **Select Operation** - Update Existing or Install New
+3. **Upload Zip** - Drag & drop or click to browse (max 50 MB)
+4. **Select Sites** - Table shows sites based on operation mode
+   - Update mode: Shows sites where item IS installed
+   - Install mode: Shows sites where item is NOT installed
+5. **Configure Options** - Enable/disable backup (update) or activation (install)
+6. **Start Update/Install** - Progress modal with real-time log
 6. **Review Results** - Summary of successes and failures
 
 ### Progress Display
@@ -146,8 +152,10 @@ All POST requests with JSON payloads to `index.cgi`:
 - **`load_cached_wordpress`** - Load cached scan results
 - **`detect_installed`** - Check which sites have a plugin/theme installed
 
-### Update Actions
-- **`update_site`** - Update a single site (called sequentially)
+### Update/Install Actions
+- **`update_site`** - Update or install on a single site (called sequentially)
+  - `mode`: 'update' (default) or 'install'
+  - `activate_after`: boolean, activate plugin after install (plugins only)
 - **`cleanup_temp`** - Clean up temporary extraction directory
 
 ### Backup Management
@@ -302,5 +310,5 @@ See [ROADMAP.md](ROADMAP.md) for planned features:
 ---
 
 **Last Updated**: 2025-12-01
-**Version**: 1.0
+**Version**: 1.1.0
 **Author**: Ryon Whyte
